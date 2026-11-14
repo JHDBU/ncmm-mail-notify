@@ -1,0 +1,15 @@
+# real credentials must never be committed
+config.yaml
+*.env
+mail.config.json
+mail.config.json.example
+
+# python / editor / os noise
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

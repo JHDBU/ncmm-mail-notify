@@ -1,0 +1,16 @@
+# 云村邮件通 - 配置示例
+# 复制为同目录 config.yaml；WebUI「在线配置」和内置 Web 面板都会写这个文件。
+# 含凭据，切勿提交到版本库（已在 .gitignore 排除）。
+
+sender_name: "云村邮件通"
+mail_from: ""
+mail_to: []
+smtp_host: "smtp.qq.com"
+smtp_port: 465
+smtp_security: "ssl"
+smtp_user: ""
+smtp_password: ""
+subject_prefix: "[ncmm]"
+webhook_port: 8787
+webhook_token: ""
+dry_run: true

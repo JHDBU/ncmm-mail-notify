@@ -1,0 +1,94 @@
+{
+  "name": "mail",
+  "title": "云村邮件通",
+  "version": "1.0.0",
+  "description": "给 ncmm 补上邮箱通道：在插件中心可视化设置发件人名字、发件邮箱、收件人与 SMTP，把任务失败通知和每日汇总自动发到邮箱。零第三方依赖，附带独立 Web 配置面板。",
+  "author": "JHDBU",
+  "recommendedCron": "0 8 * * *",
+  "params": [
+    {
+      "name": "sender_name",
+      "label": "发件人名字",
+      "type": "string",
+      "default": "云村邮件通",
+      "description": "收件箱里显示的发件人名称，例如「云村邮件通 <bot@example.com>」"
+    },
+    {
+      "name": "mail_from",
+      "label": "发件邮箱",
+      "type": "string",
+      "default": "",
+      "description": "From 地址，需与 SMTP 账号一致或为其别名"
+    },
+    {
+      "name": "mail_to",
+      "label": "收件人",
+      "type": "string",
+      "default": "",
+      "description": "多个收件人用逗号分隔"
+    },
+    {
+      "name": "smtp_host",
+      "label": "SMTP 服务器",
+      "type": "string",
+      "default": "smtp.qq.com",
+      "description": "也可用环境变量 NCMM_MAIL_SMTP_HOST 覆盖"
+    },
+    {
+      "name": "smtp_port",
+      "label": "SMTP 端口",
+      "type": "number",
+      "default": 465,
+      "description": "465=SSL，587=STARTTLS，25=明文（不建议）"
+    },
+    {
+      "name": "smtp_security",
+      "label": "加密方式",
+      "type": "string",
+      "default": "ssl",
+      "description": "ssl | starttls | none"
+    },
+    {
+      "name": "smtp_user",
+      "label": "SMTP 账号",
+      "type": "string",
+      "default": "",
+      "description": "登录用户名，通常为完整邮箱地址"
+    },
+    {
+      "name": "smtp_password",
+      "label": "SMTP 密码 / 授权码",
+      "type": "string",
+      "default": "",
+      "description": "建议留空改用 /etc/ncmm-mail.env 中的 NCMM_MAIL_SMTP_PASSWORD，避免明文落盘"
+    },
+    {
+      "name": "subject_prefix",
+      "label": "邮件主题前缀",
+      "type": "string",
+      "default": "[ncmm]",
+      "description": "便于在收件箱里过滤，最终主题形如 [ncmm] [ERROR] 签到失败"
+    },
+    {
+      "name": "webhook_port",
+      "label": "桥接与面板端口",
+      "type": "number",
+      "default": 8787,
+      "description": "仅监听 127.0.0.1；宿主 notify.webhook 指向 http://127.0.0.1:8787/notify"
+    },
+    {
+      "name": "webhook_token",
+      "label": "桥接令牌",
+      "type": "string",
+      "default": "",
+      "description": "非空时通知路径须为 /notify/<token>；留空则本机任意进程可调用"
+    },
+    {
+      "name": "dry_run",
+      "label": "仅预览不发信",
+      "type": "boolean",
+      "default": true,
+      "description": "调试期保持开启，确认收到预览内容后再关闭"
+    }
+  ]
+}

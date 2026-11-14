@@ -1,0 +1,18 @@
+[Unit]
+Description=云村邮件通 - NCMM webhook to SMTP bridge and web console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ncmm
+Group=ncmm
+EnvironmentFile=-/etc/ncmm-mail.env
+ExecStart=/usr/bin/python3 /opt/ncmm/home/plugins/ncmm-mail/ncmm-mail.py --serve --home /opt/ncmm/home
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

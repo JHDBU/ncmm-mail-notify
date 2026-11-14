@@ -111,6 +111,37 @@ webhook:
 
 > 桥接服务随 systemd 常驻，没有声明 `type: daemon`（那是 ncmm 伴生插件的生命周期约定）。这样 `plugin run` 与常驻服务互不干扰，也不会被宿主无参拉起。
 
+## 凭据放在哪里（推荐）
+
+`{home}/plugins/ncmm-mail/config.yaml` 由 WebUI「在线配置」写入，但宿主的「启动服务」toggle 可能用 `plugin.json` 的默认值重写它。更稳的做法是把凭据放服务器上的 `/etc/ncmm-mail.env`（权限 `0640 root:ncmm`）：
+
+```bash
+NCMM_MAIL_SMTP_USER=your@qq.com
+NCMM_MAIL_SMTP_PASSWORD=授权码
+NCMM_MAIL_FROM=your@qq.com
+NCMM_MAIL_TO=you@example.com,ops@example.com
+NCMM_MAIL_SENDER_NAME=云村邮件通
+# 填完后取消注释才会真实发信（优先级高于 WebUI）：
+# NCMM_MAIL_DRY_RUN=false
+```
+
+- CLI（`plugin run mail --send-test`）和常驻服务都会读它，**宿主 toggle 覆盖不到**，凭据也不必出现在聊天里。
+- 留空的项会被忽略，继续使用 WebUI 在线配置的值。优先级：进程环境变量 > 该文件 > `config.yaml`。
+- 改完不用重启，watcher 每次扫描都会重读。
+
+## 从公网打开配置面板
+
+面板默认只绑 `127.0.0.1:8787`。把 `nginx-mail-console.conf.example` 粘进 443 server 块的 `location /` 之前，可暴露成 `https://<域名>/mail/`，并用 `auth_basic` 保护：
+
+```bash
+printf 'admin:%s\n' "$(openssl passwd -apr1 '你的密码')" > /etc/nginx/.ncmm-mail-htpasswd
+chmod 0640 /etc/nginx/.ncmm-mail-htpasswd
+chown root:www-data /etc/nginx/.ncmm-mail-htpasswd
+nginx -t && nginx -s reload
+```
+
+面板里的请求都走相对路径，子路径反代下正常工作；打开后点「发送测试邮件」即可验证。
+
 ## 发送测试邮件
 
 ```bash

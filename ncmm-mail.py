@@ -87,6 +87,7 @@ ENV_MAP = {
     "NCMM_MAIL_SUBJECT_PREFIX": ("subject_prefix", str),
     "NCMM_MAIL_WEBHOOK_PORT": ("webhook_port", int),
     "NCMM_MAIL_WEBHOOK_TOKEN": ("webhook_token", str),
+    "NCMM_MAIL_DRY_RUN": ("dry_run", "bool"),
 }
 
 
@@ -200,6 +201,26 @@ def normalise(cfg):
     return cfg
 
 
+ENV_FILE = "/etc/ncmm-mail.env"
+
+
+def load_env_file(path=ENV_FILE):
+    """Read simple KEY=VALUE pairs. This file lives outside ncmm's home, so
+    the WebUI online-config / daemon toggle cannot overwrite the credentials."""
+    out = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
 def load_config(home, config_path=None):
     cfg = dict(DEFAULTS)
     path = config_path or os.path.join(plugin_dir(), "config.yaml")
@@ -224,12 +245,18 @@ def load_config(home, config_path=None):
                         cfg[k] = v
         except (OSError, ValueError):
             pass
+    # Process environment wins; /etc/ncmm-mail.env fills in the rest.
+    effective_env = dict(os.environ)
+    for k, v in load_env_file().items():
+        effective_env.setdefault(k, v)
     for env_name, (key, caster) in ENV_MAP.items():
-        raw = os.environ.get(env_name)
+        raw = effective_env.get(env_name)
         if not raw:
             continue
         if caster == "list":
             cfg[key] = [x.strip() for x in raw.split(",") if x.strip()]
+        elif caster == "bool":
+            cfg[key] = str(raw).strip().lower() in ("true", "1", "yes", "on")
         else:
             try:
                 cfg[key] = caster(raw)
@@ -575,10 +602,10 @@ button.sec{background:#6b7280;margin-left:8px}
 const $=s=>document.querySelector(s), msg=$('#msg');
 function fill(d){const c=d.config||{};for(const k of ['sender_name','mail_from','smtp_host','smtp_port','smtp_security','smtp_user','subject_prefix','webhook_port','webhook_token'])if(c[k]!==undefined)$('[name='+k+']').value=c[k];
 $('[name=mail_to]').value=(c.mail_to||[]).join(',');$('[name=dry_run]').checked=!!c.dry_run;$('[name=smtp_password]').value='';}
-fetch('/api/config').then(r=>r.json()).then(fill).catch(e=>msg.textContent='读取配置失败: '+e);
+fetch('api/config').then(r=>r.json()).then(fill).catch(e=>msg.textContent='读取配置失败: '+e);
 $('#f').addEventListener('submit',async e=>{e.preventDefault();const d={};new FormData($('#f')).forEach((v,k)=>d[k]=v);d.dry_run=$('[name=dry_run]').checked;d.mail_to=d.mail_to.split(',').map(x=>x.trim()).filter(Boolean);
-const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const j=await r.json();msg.textContent=j.message||(j.ok?'已保存':'保存失败');});
-$('#test').addEventListener('click',async()=>{const r=await fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const j=await r.json();msg.textContent=j.message||(j.ok?'测试邮件已提交':'失败');});
+const r=await fetch('api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const j=await r.json();msg.textContent=j.message||(j.ok?'已保存':'保存失败');});
+$('#test').addEventListener('click',async()=>{const r=await fetch('api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const j=await r.json();msg.textContent=j.message||(j.ok?'测试邮件已提交':'失败');});
 </script></body></html>"""
 
 

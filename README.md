@@ -111,6 +111,18 @@ webhook:
 
 > 桥接服务随 systemd 常驻，没有声明 `type: daemon`（那是 ncmm 伴生插件的生命周期约定）。这样 `plugin run` 与常驻服务互不干扰，也不会被宿主无参拉起。
 
+## 发送测试邮件
+
+```bash
+ncmm plugin run mail --send-test
+```
+
+另外两个入口：内置 Web 面板的「发送测试邮件」按钮（`POST /api/test`），或在 WebUI 定时任务里建一条 `plugin / run mail --send-test` 后点「立即运行」。
+
+- **配置不完整会直接列出缺哪些字段**并返回失败，不会假装发送成功。
+- `dry_run: true` 时只打印邮件预览，结果里明确标注「仅预览，未真实发送」。
+- 必须通过 `X-NCMM-CSRF` 的 Web 面板请求不受影响，按钮照常可用。
+
 ## 自动事件通知
 
 常驻服务（`--serve`）会顺带启动一个轻量监视线程，轮询 `{home}/log/runs/*.json` 的任务状态：

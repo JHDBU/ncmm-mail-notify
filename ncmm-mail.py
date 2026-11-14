@@ -333,7 +333,11 @@ def send_mail(cfg, subject, text, html_body):
             server.send_message(msg)
         return True, "sent"
     except Exception as e:
-        return False, "%s: %s" % (type(e).__name__, e)
+        detail = "%s: %s" % (type(e).__name__, e)
+        pw = cfg.get("smtp_password") or ""
+        if pw:
+            detail = detail.replace(pw, "***")
+        return False, detail
 
 
 # --------------------------------------------------------------------------
@@ -472,6 +476,19 @@ def run_watch_once(cfg, home, args):
     os.makedirs(runs_dir, exist_ok=True)
     scan_runs(cfg, runs_dir, state_path, verbose=True)
     return 0
+
+
+def send_test_mail(cfg):
+    """Explicit, discoverable 'send a test email' entry point."""
+    subject, text, html_body = render_email(
+        cfg, "邮箱通知测试",
+        "这是一封来自云村邮件通的测试邮件。\n"
+        "收到即表示 SMTP 配置正确，任务开始 / 失败 / 完成通知会自动发到这里。",
+        "info",
+        {"time": formatdate(localtime=True), "host": socket.gethostname(),
+         "source": "send-test"})
+    ok, detail = send_mail(cfg, subject, text, html_body)
+    return ok, detail
 
 
 def plugin_result(ok, message, data=None):
@@ -769,6 +786,8 @@ def main():
     ap.add_argument("--watch-state", help="override watcher state file")
     ap.add_argument("--watch-once", action="store_true",
                     help="scan run records once and exit (dry-run friendly)")
+    ap.add_argument("--send-test", action="store_true",
+                    help="send one test email using the current config")
     args, forward = ap.parse_known_args()
     args.forward = forward
 
@@ -795,6 +814,18 @@ def main():
     # Unknown argv (host daemon flags, --port, etc.) must NOT flip the mode.
     business = bool(args.test or args.check or args.title or args.content
                     or args.to or args.dry_run)
+    if args.send_test:
+        problems = config_problems(cfg)
+        if problems:
+            plugin_result(False, "配置不完整，无法发送测试邮件：" + ", ".join(problems),
+                          {"missing": problems, "config": cfg["_source"]})
+            return 1
+        ok, detail = send_test_mail(cfg)
+        note = "（仅预览，未真实发送）" if cfg.get("dry_run") else ""
+        plugin_result(ok, "测试邮件%s：%s%s" % ("已发送" if ok else "发送失败", detail, note),
+                      {"dry_run": bool(cfg.get("dry_run")), "detail": detail,
+                       "to": cfg.get("mail_to", [])})
+        return 0 if ok else 1
     if args.watch_once:
         return run_watch_once(cfg, home, args)
     if args.serve or host_daemon or (not ctx and not business):

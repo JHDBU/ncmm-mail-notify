@@ -241,14 +241,16 @@ def load_config(home, config_path=None):
                 old = json.load(f)
             if isinstance(old, dict):
                 for k, v in old.items():
-                    if k in DEFAULTS and not cfg.get(k):
+                    cur = cfg.get(k)
+                    if k in DEFAULTS and (cur is None or cur == "" or cur == []):
                         cfg[k] = v
         except (OSError, ValueError):
             pass
     # Process environment wins; /etc/ncmm-mail.env fills in the rest.
     effective_env = dict(os.environ)
     for k, v in load_env_file().items():
-        effective_env.setdefault(k, v)
+        if v and not effective_env.get(k):
+            effective_env[k] = v
     for env_name, (key, caster) in ENV_MAP.items():
         raw = effective_env.get(env_name)
         if not raw:

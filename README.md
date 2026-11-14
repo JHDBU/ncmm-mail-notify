@@ -36,6 +36,14 @@ NCMM_HOME_DIR=/opt/ncmm/home bash install.sh
 
 脚本会把插件装成 `{home}/plugins/ncmm-mail/` 子目录形态（与 ncmm-qqbot 一致），包含 `plugin.json`、`config.yaml.example`、`source.json`。已有的 `config.yaml` 不会被覆盖。
 
+目录里会同时生成 `ncmm-mail`（无扩展名主入口，ncmm 优先发现它）和 `ncmm-mail.py`（实际实现）；前者只是用 `runpy` 转发到后者。仓库源码文件是 `ncmm-mail.py`。
+
+> `type: daemon` 让 WebUI 显示「在线配置」和「启动服务」。实测在 ncmm v1.2.10 上，宿主的「启动服务」对 Python 插件只标记 `running:true`、不会真正拉起进程（内置的 qqbot 同样如此）。因此常驻服务请用随包的 `ncmm-mail-bridge.service`：
+> ```bash
+> systemctl enable --now ncmm-mail-bridge
+> ```
+> 在线配置写入 `config.yaml` 后，常驻服务会在每次请求时重读，**无需重启**。
+
 ## 配置
 
 装好后有两种可视化方式，改的是同一份 `config.yaml`：

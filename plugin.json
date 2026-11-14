@@ -1,5 +1,6 @@
 {
   "name": "mail",
+  "type": "daemon",
   "title": "云村邮件通",
   "version": "1.0.0",
   "description": "给 ncmm 补上邮箱通道：在插件中心可视化设置发件人名字、发件邮箱、收件人与 SMTP，把任务失败通知和每日汇总自动发到邮箱。零第三方依赖，附带独立 Web 配置面板。",
@@ -70,11 +71,18 @@
       "description": "便于在收件箱里过滤，最终主题形如 [ncmm] [ERROR] 签到失败"
     },
     {
-      "name": "webhook_port",
-      "label": "桥接与面板端口",
+      "name": "port",
+      "label": "服务端口",
       "type": "number",
       "default": 8787,
-      "description": "仅监听 127.0.0.1；宿主 notify.webhook 指向 http://127.0.0.1:8787/notify"
+      "description": "常驻服务与 Web 面板端口；宿主 notify.webhook 指向 http://127.0.0.1:8787/notify"
+    },
+    {
+      "name": "host",
+      "label": "监听地址",
+      "type": "string",
+      "default": "127.0.0.1",
+      "description": "保持 127.0.0.1 仅本机可访问，不要改成 0.0.0.0"
     },
     {
       "name": "webhook_token",

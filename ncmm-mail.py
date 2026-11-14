@@ -223,6 +223,12 @@ def load_config(home, config_path=None):
                 cfg[key] = caster(raw)
             except ValueError:
                 pass
+    # ncmm daemon params use `port` / `host` (same names as ncmm-qqbot).
+    # Accept them as aliases so online-config changes actually take effect.
+    if cfg.get("port"):
+        cfg["webhook_port"] = cfg["port"]
+    if cfg.get("host"):
+        cfg["webhook_host"] = cfg["host"]
     return normalise(cfg)
 
 
@@ -329,9 +335,23 @@ def plugin_result(ok, message, data=None):
 
 
 def read_context():
+    """Read PluginContext from stdin without ever blocking.
+
+    `ncmm plugin run` writes a JSON document to stdin (verified). A daemon
+    launch normally gives /dev/null or an idle pipe, so an empty/short read
+    means "act as the long-running service". A 0.3s select keeps an idle
+    pipe from hanging the process.
+    """
     if sys.stdin.isatty():
         return {}
-    raw = sys.stdin.read()
+    try:
+        if os.name != "nt":
+            import select
+            if not select.select([sys.stdin], [], [], 0.3)[0]:
+                return {}
+        raw = sys.stdin.read()
+    except Exception:
+        return {}
     if not raw.strip():
         return {}
     try:
@@ -394,6 +414,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
     cfg = None
     cfg_path = None
 
+    def _refresh(self):
+        """Reload config.yaml so changes saved in the WebUI online-config
+        take effect without restarting the daemon."""
+        try:
+            BridgeHandler.cfg = load_config(resolve_home(), BridgeHandler.cfg_path)
+        except Exception as e:
+            sys.stderr.write("[ncmm-mail] config reload failed: %s\n" % e)
+
     def _reply(self, code, payload, ctype="application/json; charset=utf-8"):
         if isinstance(payload, (dict, list)):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -430,6 +458,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._reply(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        self._refresh()
         path = self.path.split("?", 1)[0]
         if not self._token_ok():
             self._reply(403, {"ok": False, "error": "bad token"})
@@ -553,6 +582,16 @@ def run_plugin_mode(cfg, args, ctx):
 
 
 def main():
+    # Launch diagnostics: the host starts daemon plugins with its own argv.
+    # Keeping this tiny record makes future integration issues diagnosable.
+    try:
+        with open("/tmp/ncmm_mail_launch.txt", "w", encoding="utf-8") as _f:
+            _f.write("argv=%r\n" % (sys.argv,))
+            _f.write("ncmm_env=%r\n" % ({k: v for k, v in os.environ.items()
+                                         if k.startswith("NCMM_")},))
+            _f.write("cwd=%s\n" % os.getcwd())
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="NCMM 邮箱通知插件")
     ap.add_argument("--serve", action="store_true", help="启动内置 Web 配置面板 + notify.webhook 桥接")
     ap.add_argument("--test", action="store_true", help="仅预览不发信")
@@ -575,9 +614,24 @@ def main():
     if args.test or args.dry_run:
         cfg["dry_run"] = True
 
-    if args.serve:
+    # ncmm starts daemon plugins with its own flag (strings show
+    # "plugin-daemon"). Only match FLAG names, never argument values:
+    # a mail title containing the word "daemon" must not trigger this.
+    host_daemon = any(
+        x.startswith("--") and ("daemon" in x.lower() or x == "--background")
+        for x in sys.argv[1:]
+    )
+    args.forward = [x for x in args.forward
+                    if not (x.startswith("--") and ("daemon" in x.lower()
+                                                     or x == "--background"))]
+    ctx = {} if host_daemon else read_context()  # non-blocking
+    # Only flags a human/task would pass count as a one-shot command.
+    # Unknown argv (host daemon flags, --port, etc.) must NOT flip the mode.
+    business = bool(args.test or args.check or args.title or args.content
+                    or args.to or args.dry_run)
+    if args.serve or host_daemon or (not ctx and not business):
+        # daemon launch: no PluginContext + no explicit command -> stay resident
         return run_bridge_mode(cfg, cfg_path)
-    ctx = {} if args.check else read_context()
     return run_plugin_mode(cfg, args, ctx)
 
 

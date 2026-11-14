@@ -22,6 +22,16 @@ fi
 
 echo "[3/6] install plugin files"
 install -m 0755 "$PKG/ncmm-mail.py" "$PLUGIN_DIR/ncmm-mail.py"
+# ncmm discovers the no-extension entry first (same layout as ncmm-qqbot),
+# so provide that as the primary executable.
+cat > "$PLUGIN_DIR/ncmm-mail" <<'WRAP'
+#!/usr/bin/env python3
+import os, runpy, sys
+here = os.path.dirname(os.path.abspath(__file__))
+sys.argv[0] = os.path.join(here, "ncmm-mail.py")
+runpy.run_path(os.path.join(here, "ncmm-mail.py"), run_name="__main__")
+WRAP
+chmod 0755 "$PLUGIN_DIR/ncmm-mail"
 install -m 0644 "$PKG/plugin.json" "$PLUGIN_DIR/plugin.json"
 install -m 0644 "$PKG/source.json" "$PLUGIN_DIR/source.json"
 install -m 0644 "$PKG/config.yaml.example" "$PLUGIN_DIR/config.yaml.example"

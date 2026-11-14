@@ -14,3 +14,11 @@ subject_prefix: "[ncmm]"
 webhook_port: 8787
 webhook_token: ""
 dry_run: true
+
+# 自动事件通知：监视 {home}/log/runs/*.json 的任务状态变化
+watch_runs: true
+watch_interval: 10
+notify_on_start: true
+notify_on_success: true
+notify_on_failure: true
+log_tail_lines: 20

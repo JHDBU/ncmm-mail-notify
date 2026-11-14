@@ -31,6 +31,8 @@ import smtplib
 import socket
 import ssl
 import sys
+import threading
+import time
 import urllib.parse
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
@@ -54,6 +56,12 @@ DEFAULTS = {
     "webhook_port": 8787,
     "webhook_token": "",
     "auto_notify": False,
+    "watch_runs": True,
+    "watch_interval": 10,
+    "notify_on_start": True,
+    "notify_on_success": True,
+    "notify_on_failure": True,
+    "log_tail_lines": 20,
     "dry_run": True,
 }
 
@@ -62,6 +70,8 @@ EDITABLE = [
     "sender_name", "mail_from", "mail_to", "smtp_host", "smtp_port",
     "smtp_security", "smtp_user", "smtp_password", "subject_prefix",
     "webhook_port", "webhook_token", "auto_notify", "dry_run",
+    "watch_runs", "watch_interval", "notify_on_start", "notify_on_success",
+    "notify_on_failure", "log_tail_lines",
 ]
 SECRET_KEYS = {"smtp_password", "webhook_token"}
 
@@ -177,12 +187,14 @@ def normalise(cfg):
         cfg["mail_to"] = [str(x).strip() for x in to if str(x).strip()]
     else:
         cfg["mail_to"] = []
-    for key in ("smtp_port", "webhook_port", "timeout"):
+    for key in ("smtp_port", "webhook_port", "timeout",
+                "watch_interval", "log_tail_lines"):
         try:
             cfg[key] = int(cfg[key])
         except (ValueError, TypeError, KeyError):
             cfg[key] = DEFAULTS[key]
-    for key in ("dry_run", "auto_notify"):
+    for key in ("dry_run", "auto_notify", "watch_runs",
+                "notify_on_start", "notify_on_success", "notify_on_failure"):
         v = cfg.get(key)
         cfg[key] = v if isinstance(v, bool) else str(v).lower() in ("true", "1", "yes")
     return cfg
@@ -324,6 +336,144 @@ def send_mail(cfg, subject, text, html_body):
         return False, "%s: %s" % (type(e).__name__, e)
 
 
+# --------------------------------------------------------------------------
+# run-event watcher: task start / success / failure -> email
+# --------------------------------------------------------------------------
+
+def watch_paths(home, override_dir, override_state):
+    d = override_dir or os.path.join(home, "log", "runs")
+    st = override_state or os.path.join(plugin_dir(), "watcher_state.json")
+    return d, st
+
+
+def load_watch_state(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        return obj if isinstance(obj, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_watch_state(path, state):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def log_tail(run_path, lines):
+    p = os.path.splitext(run_path)[0] + ".log"
+    try:
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            return "".join(f.readlines()[-max(1, int(lines)):])
+    except OSError:
+        return ""
+
+
+def classify_status(status):
+    v = str(status or "").lower()
+    if v in ("failed", "error", "fail", "failure", "cancelled", "canceled", "timeout"):
+        return "failure"
+    if v in ("success", "succeeded", "completed", "done", "ok", "finished"):
+        return "success"
+    if v in ("running", "pending", "queued", "starting"):
+        return "start"
+    return None
+
+
+def emit_run_mail(cfg, run, kind, tail):
+    labels = {"start": ("任务开始", "info"),
+              "success": ("任务完成", "info"),
+              "failure": ("任务失败", "error")}
+    label, level = labels[kind]
+    job = run.get("jobName") or run.get("command") or "ncmm"
+    title = "%s · %s" % (label, job)
+    body = "\n".join([
+        label, "",
+        "任务    : %s" % job,
+        "命令    : %s" % (run.get("command") or "-"),
+        "状态    : %s" % (run.get("status") or "-"),
+        "运行 ID : %s" % (run.get("id") or "-"),
+        "触发于  : %s" % (run.get("triggeredAt") or "-"),
+        "开始于  : %s" % (run.get("startedAt") or "-"),
+    ])
+    if tail:
+        body += "\n\n--- 日志尾部 ---\n" + tail[-4000:]
+    extra = {"time": formatdate(localtime=True), "host": socket.gethostname(),
+             "source": "run-watcher", "run_id": run.get("id") or "-"}
+    subject, text, html_body = render_email(cfg, title, body, level, extra)
+    ok, detail = send_mail(cfg, subject, text, html_body)
+    sys.stderr.write("[watcher] %s mail: %s (%s)\n" % (label, "ok" if ok else "fail", detail))
+    return 1 if ok else 0
+
+
+def scan_runs(cfg, runs_dir, state_path, verbose=False):
+    """Emit mail on new runs and on status transitions. Historical runs are
+    recorded without replaying mail on the very first scan."""
+    state = load_watch_state(state_path)
+    first_run = not state
+    try:
+        skip = {os.path.basename(state_path), "watcher_state.json"}
+        names = sorted(n for n in os.listdir(runs_dir)
+                       if n.endswith(".json") and n not in skip
+                       and not n.endswith(".tmp"))
+    except OSError:
+        return 0
+    changed, sent = False, 0
+    for name in names:
+        path = os.path.join(runs_dir, name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                run = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(run, dict):
+            continue
+        rid = str(run.get("id") or name)
+        status = str(run.get("status") or "")
+        kind = classify_status(status)
+        prev = state.get(rid)
+        if prev == status:
+            continue
+        state[rid] = status
+        changed = True
+        if prev is None:
+            # A brand new run. Skip everything on the very first scan.
+            if not first_run and kind == "start" and cfg.get("notify_on_start"):
+                sent += emit_run_mail(cfg, run, "start", "")
+            continue
+        if kind == "failure" and cfg.get("notify_on_failure"):
+            sent += emit_run_mail(cfg, run, "failure",
+                                  log_tail(path, cfg.get("log_tail_lines") or 20))
+        elif kind == "success" and cfg.get("notify_on_success"):
+            sent += emit_run_mail(cfg, run, "success", "")
+    if changed:
+        save_watch_state(state_path, state)
+    if verbose:
+        sys.stdout.write("[watcher] scanned=%d sent=%d tracked=%d\n"
+                         % (len(names), sent, len(state)))
+    return sent
+
+
+def watch_loop(home, runs_dir, state_path, interval):
+    sys.stderr.write("[watcher] watching %s every %ss\n" % (runs_dir, interval))
+    while True:
+        try:
+            cfg = load_config(home)  # hot-reload online-config changes
+            scan_runs(cfg, runs_dir, state_path)
+        except Exception as e:
+            sys.stderr.write("[watcher] error: %s\n" % e)
+        time.sleep(max(3, int(interval or 10)))
+
+
+def run_watch_once(cfg, home, args):
+    runs_dir, state_path = watch_paths(home, args.watch_dir, args.watch_state)
+    os.makedirs(runs_dir, exist_ok=True)
+    scan_runs(cfg, runs_dir, state_path, verbose=True)
+    return 0
+
+
 def plugin_result(ok, message, data=None):
     # should_notify=false avoids a loop: host notify -> webhook -> bridge -> notify
     result = {
@@ -335,23 +485,29 @@ def plugin_result(ok, message, data=None):
 
 
 def read_context():
-    """Read PluginContext from stdin without ever blocking.
+    """Read PluginContext from stdin without ever blocking, on any OS.
 
     `ncmm plugin run` writes a JSON document to stdin (verified). A daemon
-    launch normally gives /dev/null or an idle pipe, so an empty/short read
-    means "act as the long-running service". A 0.3s select keeps an idle
-    pipe from hanging the process.
+    launch gives /dev/null or an idle pipe. A daemon reader thread plus a
+    0.3s join keeps Windows pipes (where select() is unavailable) from
+    hanging the process.
     """
     if sys.stdin.isatty():
         return {}
-    try:
-        if os.name != "nt":
-            import select
-            if not select.select([sys.stdin], [], [], 0.3)[0]:
-                return {}
-        raw = sys.stdin.read()
-    except Exception:
-        return {}
+    box = {}
+
+    def _reader():
+        try:
+            box["raw"] = sys.stdin.read()
+        except Exception:
+            box["raw"] = ""
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    t.join(0.3)
+    if t.is_alive():
+        return {}  # idle pipe: treat as a daemon launch
+    raw = box.get("raw", "")
     if not raw.strip():
         return {}
     try:
@@ -530,6 +686,12 @@ def run_bridge_mode(cfg, cfg_path):
     BridgeHandler.cfg, BridgeHandler.cfg_path = cfg, cfg_path
     sys.stderr.write("[ncmm-mail] console: http://%s:%d/  bridge: http://%s:%d/notify\n"
                      % (host, port, host, port))
+    if cfg.get("watch_runs"):
+        home = resolve_home()
+        rd, sp = watch_paths(home, None, None)
+        threading.Thread(target=watch_loop,
+                         args=(home, rd, sp, cfg.get("watch_interval")),
+                         daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), BridgeHandler)
     try:
         httpd.serve_forever()
@@ -603,6 +765,10 @@ def main():
     ap.add_argument("--config", help="覆盖配置文件路径")
     ap.add_argument("--to", help="覆盖收件人，逗号分隔")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--watch-dir", help="override run-record directory")
+    ap.add_argument("--watch-state", help="override watcher state file")
+    ap.add_argument("--watch-once", action="store_true",
+                    help="scan run records once and exit (dry-run friendly)")
     args, forward = ap.parse_known_args()
     args.forward = forward
 
@@ -629,6 +795,8 @@ def main():
     # Unknown argv (host daemon flags, --port, etc.) must NOT flip the mode.
     business = bool(args.test or args.check or args.title or args.content
                     or args.to or args.dry_run)
+    if args.watch_once:
+        return run_watch_once(cfg, home, args)
     if args.serve or host_daemon or (not ctx and not business):
         # daemon launch: no PluginContext + no explicit command -> stay resident
         return run_bridge_mode(cfg, cfg_path)

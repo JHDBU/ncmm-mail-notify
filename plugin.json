@@ -92,6 +92,48 @@
       "description": "非空时通知路径须为 /notify/<token>；留空则本机任意进程可调用"
     },
     {
+      "name": "watch_runs",
+      "label": "自动监视任务事件",
+      "type": "boolean",
+      "default": true,
+      "description": "轮询 ncmm 运行记录，任务开始/完成/失败时自动发邮件"
+    },
+    {
+      "name": "watch_interval",
+      "label": "轮询间隔（秒）",
+      "type": "number",
+      "default": 10,
+      "description": "检查任务状态变化的频率，最小 3 秒"
+    },
+    {
+      "name": "notify_on_start",
+      "label": "任务开始时发信",
+      "type": "boolean",
+      "default": true,
+      "description": "出现新的运行记录且状态为 running 时发一封"
+    },
+    {
+      "name": "notify_on_success",
+      "label": "任务完成时发信",
+      "type": "boolean",
+      "default": true,
+      "description": "状态变为 success / completed 时发一封"
+    },
+    {
+      "name": "notify_on_failure",
+      "label": "任务失败时发信",
+      "type": "boolean",
+      "default": true,
+      "description": "状态变为 failed / error / timeout 时发一封，并附上日志尾部"
+    },
+    {
+      "name": "log_tail_lines",
+      "label": "失败邮件附带日志行数",
+      "type": "number",
+      "default": 20,
+      "description": "失败邮件正文附上的任务日志末尾行数"
+    },
+    {
       "name": "dry_run",
       "label": "仅预览不发信",
       "type": "boolean",

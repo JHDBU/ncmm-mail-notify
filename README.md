@@ -111,6 +111,30 @@ webhook:
 
 > 桥接服务随 systemd 常驻，没有声明 `type: daemon`（那是 ncmm 伴生插件的生命周期约定）。这样 `plugin run` 与常驻服务互不干扰，也不会被宿主无参拉起。
 
+## 自动事件通知
+
+常驻服务（`--serve`）会顺带启动一个轻量监视线程，轮询 `{home}/log/runs/*.json` 的任务状态：
+
+| 事件 | 触发条件 | 默认 | 邮件级别 |
+| --- | --- | --- | --- |
+| 任务开始 | 出现新的 run 记录且状态 `running` | 开 | INFO |
+| 任务失败 | 状态变为 `failed` / `error` / `timeout` 等 | 开 | ERROR，附日志末尾 20 行 |
+| 任务完成 | 状态变为 `success` / `completed` 等 | 开 | INFO |
+
+邮件正文含任务名、命令、状态、运行 ID、触发/开始时间；失败时额外附上同名 `.log` 的尾部，方便直接定位。
+
+为什么不用 ncmm 原生的 `notify.webhook`：那条通道只在**进程结束时汇总推一条失败消息**，成功和开始都不推，而且会和这里的失败邮件重复。所以自动事件走旁路监视，`notify.yaml` 里的其它通道（已有的企业微信等）保持不动。`/notify` 端点仍然保留，想接原生通知时随时可用。
+
+- 首次启动只记录当前存在的 run 状态，**不会把历史任务补发一遍**；已通知状态存在 `watcher_state.json`，重启服务不会重复发。
+- 开关 `watch_runs` / `notify_on_start` / `notify_on_success` / `notify_on_failure` / `watch_interval` / `log_tail_lines` 都能在 WebUI 在线配置或内置面板里改，改动热生效，无需重启。
+- 单独扫一次用于调试：
+  ```bash
+  python3 ncmm-mail.py --watch-once --watch-dir /tmp/runs \
+      --watch-state /tmp/state.json --dry-run
+  ```
+
+> 只要 `dry_run: true`，这三封邮件都只打印预览而不真发。填好 SMTP 后改成 `false` 即自动生效。
+
 ## 安全说明
 
 - `config.yaml` 含 SMTP 凭据，已在 `.gitignore` 排除；文件权限 `0600`。

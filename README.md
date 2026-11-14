@@ -20,6 +20,9 @@ ncmm 原生通知支持 Webhook / Bark / Server酱 / Telegram / 钉钉 / PushPlu
 JHDBU/ncmm-mail-notify
 ```
 
+> 在线安装走的是 GitHub `https://api.github.com/repos/{owner}/{repo}/releases/latest`，所以仓库**必须发布 Release**，且资产名要匹配当前平台（`<repo>_Linux_x86_64.tar.gz` 等）。若报 `query GitHub releases failed: GitHub API returned 404 Not Found (check repo name or token)`，就是只有源码提交、没有 Release。本仓库 `v1.0.0` 已带资产与 checksums。
+> 资产包内为扁平结构：`README.md`、`config.yaml.example`、`plugin.json`、`source.json`、`ncmm-mail.py`、无扩展名可执行入口 `ncmm-mail`（0755）；宿主会解压到 `plugins/ncmm-mail/`。
+
 **方式二：命令行**
 
 ```bash
